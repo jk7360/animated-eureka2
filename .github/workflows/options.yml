@@ -1,9 +1,6 @@
 name: Eureka2
 
-on:
-  schedule:
-    - cron: '05 14 * * 1-5'
-  workflow_dispatch:
+
 
 jobs:
   run-python-script:
