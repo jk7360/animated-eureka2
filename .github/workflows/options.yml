@@ -1,0 +1,34 @@
+name: Eureka2
+
+on:
+  schedule:
+    - cron: '05 14 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-python-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install yfinance pandas
+
+      - name: Run Python Script Repeatedly (for 3.5 hours interval)
+        run: |
+           for i in {1..4}; do
+               python options.py || echo "Error on run $i"
+               #sleep 15
+           done
+           
+      - name: Upload CSV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SPY-options-1-csv
+          path: SPY_option_*.csv
