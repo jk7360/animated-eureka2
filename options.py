@@ -1,64 +1,60 @@
 import yfinance as yf 
 import pandas as pd
 from datetime import datetime
-import os 
+import os
 
-# Create ticker object once
-spy = yf.Ticker("SPY")
+# List of actively traded tickers
+tickers = ["SPY", "NVDA", "TSLA", "AAPL", "MSFT"]
 
-# Get latest SPY price
-def get_latest_spy_price():
-    hist = spy.history(period="1d")
-    if hist.empty:
-        raise Exception("No SPY data found")
-    return round(hist.iloc[-1]["Close"], 2)
-
-# Get first available expiration date
-expiration_date = spy.options[0]
-
-# Define headers
-header = ["Timestamp", "SPY price", "strike",
+# Define option data columns
+header = ["Timestamp", "Underlying Price", "strike",
     "Call_lastPrice", "Call_bid", "Call_ask", "Call_volume",
     "Call_impliedVolatility", "Call_openInterest",
     "Put_lastPrice", "Put_bid", "Put_ask", "Put_volume",
     "Put_impliedVolatility", "Put_openInterest"]
 
-# Get today's date for file name
-today_str = datetime.now().strftime('%Y-%m-%d')
-csv_file = f"SPY_option_{expiration_date}-01.csv"
+# Utility to get latest price
+def get_latest_price(ticker_obj):
+    hist = ticker_obj.history(period="1d")
+    if hist.empty:
+        raise Exception("No data found")
+    return round(hist.iloc[-1]["Close"], 2)
 
-def get_spy_options(expiration_date):
-    spy_price = get_latest_spy_price()
+# Process options for a single ticker
+def get_options_data(ticker_symbol):
+    ticker = yf.Ticker(ticker_symbol)
+    try:
+        current_price = get_latest_price(ticker)
+        expiration = ticker.options[0]  # Nearest expiry
+        options_chain = ticker.option_chain(expiration)
 
-    # Fixed 9 strike prices centered around 520 with $5 intervals
-    selected_strikes = [500 + 5 * i for i in range(12)]
+        # Center strikes around current price ± $20 in $5 intervals
+        base = round(current_price / 5) * 5
+        selected_strikes = [base + 5 * i for i in range(-4, 5)]
 
-    # Get options chain
-    options_chain = spy.option_chain(expiration_date)
-    calls = options_chain.calls
-    puts = options_chain.puts
+        def filter_and_rename(df, kind):
+            df = df[df['strike'].isin(selected_strikes)]
+            return df[['strike', 'lastPrice', 'bid', 'ask', 'volume', 'impliedVolatility', 'openInterest']] \
+                .rename(columns=lambda x: f"{kind}_{x}" if x != 'strike' else x)
 
-    # Filter and rename
-    def filter_and_rename(df, kind):
-        df = df[df['strike'].isin(selected_strikes)]
-        return df[['strike', 'lastPrice', 'bid', 'ask', 'volume', 'impliedVolatility', 'openInterest']] \
-            .rename(columns=lambda x: f"{kind}_{x}" if x != 'strike' else x)
+        calls = filter_and_rename(options_chain.calls, "Call")
+        puts = filter_and_rename(options_chain.puts, "Put")
 
-    calls_filtered = filter_and_rename(calls, "Call")
-    puts_filtered = filter_and_rename(puts, "Put")
+        # Merge and label
+        combined_df = pd.merge(calls, puts, on="strike", how="inner")
+        combined_df.insert(0, "Timestamp", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        combined_df.insert(1, "Underlying Price", current_price)
 
-    # Merge
-    combined_df = pd.merge(calls_filtered, puts_filtered, on="strike", how="inner")
-    combined_df.insert(0, "Timestamp", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    combined_df.insert(1, "SPY price", spy_price)
+        # File name: TICKER_options_YYYY-MM-DD.csv
+        filename = f"{ticker_symbol}_options_{expiration}.csv"
+        file_exists = os.path.exists(filename)
 
-    # Save
-    file_exists = os.path.exists(csv_file)
-    combined_df.to_csv(csv_file, mode='a', header=not file_exists, index=False)
-    print(f"Saved: {csv_file} at {combined_df.iloc[0]['Timestamp']}")
+        combined_df.to_csv(filename, mode='a', header=not file_exists, index=False)
+        print(f"[{ticker_symbol}] Saved {filename} at {combined_df.iloc[0]['Timestamp']}")
 
-# Run the function
-try:
-    get_spy_options(expiration_date)
-except Exception as e:
-    print(f"Error: {e}")
+    except Exception as e:
+        print(f"[{ticker_symbol}] Error: {e}")
+
+# Loop through tickers
+for t in tickers:
+    get_options_data(t)
